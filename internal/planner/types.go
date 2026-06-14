@@ -34,8 +34,12 @@ type ReviewPayload struct {
 	// Only meaningful when HasSDD is true.
 	StrictTDD bool
 
+	// StrictWorkflow reflects the user's Strict Workflow Mode choice.
+	// Only meaningful when HasSDD is true.
+	StrictWorkflow bool
+
 	// HasSDD is true when the SDD component is present in the resolved plan (Issue #149).
-	// Controls whether the Strict TDD row is shown in the review screen.
+	// Controls whether the Strict TDD and Strict Workflow rows are shown in the review screen.
 	HasSDD bool
 }
 

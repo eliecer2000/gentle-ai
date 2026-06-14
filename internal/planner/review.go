@@ -32,7 +32,8 @@ func BuildReviewPayload(selection model.Selection, resolved ResolvedPlan) Review
 		// Issue #145: pass skills from selection.
 		Skills: selection.Skills,
 		// Issue #149: pass StrictTDD and whether SDD is in plan.
-		StrictTDD: selection.StrictTDD,
-		HasSDD:    hasSDD,
+		StrictTDD:      selection.StrictTDD,
+		StrictWorkflow: selection.StrictWorkflow,
+		HasSDD:         hasSDD,
 	}
 }
