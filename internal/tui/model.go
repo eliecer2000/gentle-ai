@@ -324,6 +324,7 @@ const (
 	ScreenCodexModelPicker
 	ScreenSDDMode
 	ScreenStrictTDD
+	ScreenStrictWorkflow
 	ScreenOpenCodePlugins
 	ScreenOpenCodePluginResult
 	ScreenDependencyTree
@@ -1019,6 +1020,8 @@ func (m Model) View() string {
 		return screens.RenderSDDMode(m.Selection.SDDMode, m.Cursor)
 	case ScreenStrictTDD:
 		return screens.RenderStrictTDD(m.Selection.StrictTDD, m.Cursor)
+	case ScreenStrictWorkflow:
+		return screens.RenderStrictWorkflow(m.Selection.StrictWorkflow, m.Cursor)
 	case ScreenOpenCodePlugins:
 		return screens.RenderOpenCodePlugins(m.Selection.OpenCodePlugins, m.Cursor)
 	case ScreenOpenCodePluginResult:
@@ -2015,12 +2018,20 @@ func (m Model) confirmSelection() (tea.Model, tea.Cmd) {
 		if m.Cursor < len(options) {
 			// Enable is index 0, Disable is index 1.
 			m.Selection.StrictTDD = (m.Cursor == screens.StrictTDDOptionEnable)
+			m.setScreen(ScreenStrictWorkflow)
+			return m, nil
+		}
+		// Back — use pickerPreviousScreen for unified reverse navigation.
+		if prev, ok := m.pickerPreviousScreen(); ok {
+			m.applyPickerEntry(prev)
+		}
+	case ScreenStrictWorkflow:
+		options := screens.StrictWorkflowOptions()
+		if m.Cursor < len(options) {
+			m.Selection.StrictWorkflow = (m.Cursor == screens.StrictWorkflowOptionEnable)
 			if m.shouldShowOpenCodePluginsScreen() {
-				// Early-return guard: OpenCodePlugins is outside the picker slice.
 				m.setScreen(ScreenOpenCodePlugins)
 			} else if m.Selection.Preset == model.PresetCustom {
-				// Custom preset: dependency plan was already built before SDD mode.
-				// Check skill picker before going to review.
 				if m.shouldShowSkillPickerScreen() {
 					if len(m.SkillPicker) == 0 {
 						m.initSkillPicker()
@@ -2030,18 +2041,14 @@ func (m Model) confirmSelection() (tea.Model, tea.Cmd) {
 					m.Review = planner.BuildReviewPayload(m.Selection, m.DependencyPlan)
 					m.setScreen(ScreenReview)
 				}
-			} else if next, ok := m.pickerNextScreen(); ok {
-				// Non-custom: advance to the next screen in the picker slice
-				// (always DependencyTree for StrictTDD, the last non-custom anchor).
+			} else {
 				m.buildDependencyPlan()
-				m.applyPickerEntry(next)
+				m.setScreen(ScreenDependencyTree)
 			}
 			return m, nil
 		}
-		// Back — use pickerPreviousScreen for unified reverse navigation.
-		if prev, ok := m.pickerPreviousScreen(); ok {
-			m.applyPickerEntry(prev)
-		}
+		// Back — always returns to StrictTDD.
+		m.setScreen(ScreenStrictTDD)
 	case ScreenOpenCodePlugins:
 		return m.confirmOpenCodePlugins()
 	case ScreenOpenCodePluginResult:
@@ -2827,10 +2834,12 @@ func (m Model) goBack() Model {
 	}
 
 	// From SkillPicker, go back to the preceding screen.
-	// In custom preset: StrictTDD precedes SkillPicker; SDDMode/ModelPicker/ClaudeModelPicker precede StrictTDD.
+	// In custom preset: StrictWorkflow precedes SkillPicker; StrictTDD precedes StrictWorkflow.
 	if m.Screen == ScreenSkillPicker {
 		if m.Selection.Preset == model.PresetCustom {
-			if m.shouldShowStrictTDDScreen() {
+			if m.shouldShowStrictWorkflowScreen() {
+				m.setScreen(ScreenStrictWorkflow)
+			} else if m.shouldShowStrictTDDScreen() {
 				m.setScreen(ScreenStrictTDD)
 			} else if m.shouldShowSDDModeScreen() {
 				if m.Selection.SDDMode == model.SDDModeMulti {
@@ -2870,17 +2879,33 @@ func (m Model) goBack() Model {
 			m.setScreen(ScreenOpenCodePlugins)
 			return m
 		}
+		if m.shouldShowStrictWorkflowScreen() {
+			// StrictWorkflow sits between StrictTDD and DependencyTree.
+			m.setScreen(ScreenStrictWorkflow)
+			return m
+		}
+		if m.shouldShowStrictTDDScreen() {
+			// StrictTDD screen is between (SDDMode/ClaudeModelPicker/Preset) and DependencyTree.
+			m.setScreen(ScreenStrictTDD)
+			return m
+		}
 		if prev, ok := m.pickerPreviousScreen(); ok {
-			// No OpenCode; step back through the picker slice.
 			m.applyPickerEntry(prev)
 			return m
 		}
 	}
 
-	// goBack for picker flow screens: use pickerPreviousScreen for unified
-	// reverse navigation (StrictTDD, SDDMode, ClaudeModelPicker, KiroModelPicker,
-	// CodexModelPicker). The OpenCodePluginsStandalone guard is preserved as an
-	// early-return BEFORE the slice walk.
+	// Going back from ScreenStrictWorkflow always returns to ScreenStrictTDD.
+	if m.Screen == ScreenStrictWorkflow {
+		m.setScreen(ScreenStrictTDD)
+		return m
+	}
+
+	// Going back from ScreenStrictTDD depends on which flow brought us here:
+	//   - OpenCode flow: ModelPicker (multi + cache) → SDDMode
+	//   - ClaudeCode flow: ClaudeModelPicker
+	//   - Custom preset (other agents): DependencyTree (the component selector)
+	//   - Non-custom other agents: Preset
 	if m.Screen == ScreenStrictTDD {
 		if prev, ok := m.pickerPreviousScreen(); ok {
 			m.applyPickerEntry(prev)
@@ -3107,6 +3132,8 @@ func (m Model) optionCount() int {
 		return len(screens.SDDModeOptions()) + 1
 	case ScreenStrictTDD:
 		return len(screens.StrictTDDOptions()) + 1 // Enable + Disable + Back
+	case ScreenStrictWorkflow:
+		return len(screens.StrictWorkflowOptions()) + 1 // Enable + Disable + Back
 	case ScreenOpenCodePlugins:
 		return screens.OpenCodePluginsOptionCount()
 	case ScreenOpenCodePluginResult:
@@ -3399,6 +3426,10 @@ func (m Model) goBackFromOpenCodePlugins() Model {
 		return m
 	}
 
+	if m.shouldShowStrictWorkflowScreen() {
+		m.setScreen(ScreenStrictWorkflow)
+		return m
+	}
 	if m.shouldShowStrictTDDScreen() {
 		m.setScreen(ScreenStrictTDD)
 		return m
@@ -3629,6 +3660,12 @@ func (m Model) shouldShowSDDModeScreen() bool {
 // be shown in the navigation flow. It requires only that the SDD component is
 // selected — the screen is agent-agnostic.
 func (m Model) shouldShowStrictTDDScreen() bool {
+	return hasSelectedComponent(m.Selection.Components, model.ComponentSDD)
+}
+
+// shouldShowStrictWorkflowScreen reports whether the Strict Workflow Mode screen
+// should be shown. Shown whenever SDD is selected, immediately after StrictTDD.
+func (m Model) shouldShowStrictWorkflowScreen() bool {
 	return hasSelectedComponent(m.Selection.Components, model.ComponentSDD)
 }
 
