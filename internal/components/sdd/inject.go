@@ -43,6 +43,11 @@ type InjectOptions struct {
 	// the agent's system prompt so agents know Strict TDD is active.
 	StrictTDD bool
 
+	// StrictWorkflow enables Strict Workflow mode. When true, a
+	// <!-- gentle-ai:strict-workflow-mode --> marker section is injected into
+	// the agent's system prompt so the sequential-branches skill activates.
+	StrictWorkflow bool
+
 	// Profiles lists named SDD profiles to generate and merge into the
 	// OpenCode settings file. The default profile (Name="" or Name="default")
 	// is skipped — it is handled by the existing flow.
@@ -372,6 +377,43 @@ func Inject(homeDir string, adapter agents.Adapter, sddMode model.SDDModeID, opt
 			}
 			changed = changed || writeResult.Changed
 			// Only append path once (it may already be in files from step 1).
+			alreadyInFiles := false
+			for _, f := range files {
+				if f == promptPath {
+					alreadyInFiles = true
+					break
+				}
+			}
+			if !alreadyInFiles {
+				files = append(files, promptPath)
+			}
+		}
+	}
+
+	// 1c. If StrictWorkflow is enabled, inject the strict-workflow-mode marker section
+	// so the sequential-branches skill activates on task start.
+	if opts.StrictWorkflow && adapter.Agent() != model.AgentOpenCode && adapter.Agent() != model.AgentKilocode {
+		if adapter.SystemPromptStrategy() == model.StrategyJinjaModules {
+			configDir := adapter.GlobalConfigDir(homeDir)
+			modulePath := filepath.Join(configDir, "strict-workflow-mode.md")
+			writeResult, err := filemerge.WriteFileAtomic(modulePath, []byte("Strict Workflow Mode: enabled"), 0o644)
+			if err != nil {
+				return InjectionResult{}, err
+			}
+			changed = changed || writeResult.Changed
+			files = append(files, modulePath)
+		} else {
+			promptPath := adapter.SystemPromptFile(homeDir)
+			existing, readErr := readFileOrEmpty(promptPath)
+			if readErr != nil {
+				return InjectionResult{}, readErr
+			}
+			updated := filemerge.InjectMarkdownSection(existing, "strict-workflow-mode", "Strict Workflow Mode: enabled")
+			writeResult, writeErr := filemerge.WriteFileAtomic(promptPath, []byte(updated), 0o644)
+			if writeErr != nil {
+				return InjectionResult{}, writeErr
+			}
+			changed = changed || writeResult.Changed
 			alreadyInFiles := false
 			for _, f := range files {
 				if f == promptPath {
