@@ -3370,11 +3370,11 @@ func TestCustomPresetStrictTDDWithClaudeFlow(t *testing.T) {
 }
 
 // TestCustomPresetStrictTDDContinueGoesToSkillPickerOrReview verifies that in the
-// custom preset, when on ScreenStrictTDD, pressing Enter on the "Enable" option
-// goes to ScreenSkillPicker (when Skills is selected) or ScreenReview (when not).
-// This verifies Gap 4 — already fixed, this is a regression guard.
+// custom preset, when on ScreenStrictTDD, pressing Enter always goes to
+// ScreenStrictWorkflow first (the new screen inserted after StrictTDD).
+// This is a regression guard for the StrictTDD → StrictWorkflow → (SkillPicker|Review) flow.
 func TestCustomPresetStrictTDDContinueGoesToSkillPickerOrReview(t *testing.T) {
-	// Case 1: Skills selected → should go to ScreenSkillPicker.
+	// Case 1: StrictTDD → StrictWorkflow (Skills selected).
 	m := NewModel(system.DetectionResult{}, "dev")
 	m.Screen = ScreenStrictTDD
 	m.Selection.Preset = model.PresetCustom
@@ -3385,23 +3385,37 @@ func TestCustomPresetStrictTDDContinueGoesToSkillPickerOrReview(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	state := updated.(Model)
 
-	if state.Screen != ScreenSkillPicker {
-		t.Fatalf("case Skills selected: screen = %v, want ScreenSkillPicker after Enable in custom preset StrictTDD", state.Screen)
+	if state.Screen != ScreenStrictWorkflow {
+		t.Fatalf("case Skills selected: screen = %v, want ScreenStrictWorkflow after Enable in custom preset StrictTDD", state.Screen)
 	}
 
-	// Case 2: No Skills → should go to ScreenReview.
-	m2 := NewModel(system.DetectionResult{}, "dev")
-	m2.Screen = ScreenStrictTDD
-	m2.Selection.Preset = model.PresetCustom
-	m2.Selection.Agents = []model.AgentID{model.AgentCursor}
-	m2.Selection.Components = []model.ComponentID{model.ComponentSDD} // no Skills
-	m2.Cursor = screens.StrictTDDOptionDisable
-
-	updated2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Case 2: StrictWorkflow → SkillPicker (Skills selected).
+	state.Cursor = screens.StrictWorkflowOptionEnable
+	updated2, _ := state.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	state2 := updated2.(Model)
 
-	if state2.Screen != ScreenReview {
-		t.Fatalf("case no Skills: screen = %v, want ScreenReview after Disable in custom preset StrictTDD", state2.Screen)
+	if state2.Screen != ScreenSkillPicker {
+		t.Fatalf("case Skills selected: screen = %v, want ScreenSkillPicker after Enable in custom preset StrictWorkflow", state2.Screen)
+	}
+
+	// Case 3: StrictTDD → StrictWorkflow → Review (no Skills).
+	m3 := NewModel(system.DetectionResult{}, "dev")
+	m3.Screen = ScreenStrictTDD
+	m3.Selection.Preset = model.PresetCustom
+	m3.Selection.Agents = []model.AgentID{model.AgentCursor}
+	m3.Selection.Components = []model.ComponentID{model.ComponentSDD} // no Skills
+	m3.Cursor = screens.StrictTDDOptionDisable
+
+	updated3, _ := m3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state3 := updated3.(Model)
+	if state3.Screen != ScreenStrictWorkflow {
+		t.Fatalf("case no Skills: screen = %v, want ScreenStrictWorkflow after Disable in custom preset StrictTDD", state3.Screen)
+	}
+	state3.Cursor = screens.StrictWorkflowOptionDisable
+	updated4, _ := state3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state4 := updated4.(Model)
+	if state4.Screen != ScreenReview {
+		t.Fatalf("case no Skills: screen = %v, want ScreenReview after Disable in custom preset StrictWorkflow", state4.Screen)
 	}
 }
 
@@ -3444,23 +3458,21 @@ func TestCustomPresetStrictTDDBackGoesToSDDMode(t *testing.T) {
 	}
 }
 
-// TestCustomPresetSkillPickerBackGoesToStrictTDD verifies that in the custom preset,
-// pressing ESC (or Enter on Back) on ScreenSkillPicker when StrictTDD should be shown
-// (SDD selected) goes back to ScreenStrictTDD, not directly to SDDMode/DependencyTree.
-// RED: currently fails because goBack() from SkillPicker in custom preset has no StrictTDD check.
-func TestCustomPresetSkillPickerBackGoesToStrictTDD(t *testing.T) {
+// TestCustomPresetSkillPickerBackGoesToStrictWorkflow verifies that in the custom preset,
+// pressing ESC on ScreenSkillPicker when SDD is selected goes back to ScreenStrictWorkflow
+// (which sits between StrictTDD and SkillPicker in the forward flow).
+func TestCustomPresetSkillPickerBackGoesToStrictWorkflow(t *testing.T) {
 	m := NewModel(system.DetectionResult{}, "dev")
 	m.Screen = ScreenSkillPicker
 	m.Selection.Preset = model.PresetCustom
-	// Cursor agent: no SDDMode, no ClaudeModelPicker.
 	m.Selection.Agents = []model.AgentID{model.AgentCursor}
 	m.Selection.Components = []model.ComponentID{model.ComponentSDD, model.ComponentSkills}
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	state := updated.(Model)
 
-	if state.Screen != ScreenStrictTDD {
-		t.Fatalf("screen = %v, want ScreenStrictTDD after Esc on SkillPicker (custom preset + SDD)", state.Screen)
+	if state.Screen != ScreenStrictWorkflow {
+		t.Fatalf("screen = %v, want ScreenStrictWorkflow after Esc on SkillPicker (custom preset + SDD)", state.Screen)
 	}
 }
 
