@@ -9,6 +9,7 @@ type Selection struct {
 	SDDMode                     SDDModeID
 	SDDProfileStrategy          SDDProfileStrategyID
 	StrictTDD                   bool
+	StrictWorkflow              bool
 	CodexMultiAgent             bool                             // deprecated: Codex now always writes features.multi_agent = true; retained for state/back-compat
 	ModelAssignments            map[string]ModelAssignment       // key = sub-agent name (e.g., "sdd-init")
 	ClaudeModelAssignments      map[string]ClaudeModelAlias      // key = phase name; value = fable|opus|sonnet|haiku
