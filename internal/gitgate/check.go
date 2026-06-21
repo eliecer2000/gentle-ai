@@ -5,25 +5,31 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// Check runs the gate named gate in the directory cwd.
-//
-// In Slice 0 the gate domain check is a no-op stub that always returns allow.
-// The full resolution pipeline (config read → sentinel consume → mode resolve →
-// domain check → output) is exercised so the wiring is proven end-to-end.
-// Slices 1 and 2 replace the stub with real git/gh inspection.
+// Check runs the gate named gate in the directory cwd, reading stdin from
+// os.Stdin. This is the main entry point used by the git-gate CLI.
 //
 // Fail-open contract: any internal error must never block the agent.
 // On internal error, allow JSON is written and the error is returned to the
 // caller for stderr logging.
 func Check(gate, cwd string, stdout io.Writer) error {
+	return CheckWithStdin(gate, cwd, os.Stdin, stdout)
+}
+
+// CheckWithStdin is the full implementation of Check, with injectable stdin.
+// It is used by tests to inject simulated Claude PreToolUse payloads without
+// depending on os.Stdin.
+func CheckWithStdin(gate, cwd string, stdin io.Reader, stdout io.Writer) error {
 	if stdout == nil {
 		stdout = os.Stdout
 	}
+	if stdin == nil {
+		stdin = strings.NewReader("")
+	}
 
-	// Resolve config path: openspec/config.yaml under cwd, or fallback to
-	// CLAUDE_PROJECT_DIR env var when cwd is not set.
+	// Resolve project directory.
 	projectDir := cwd
 	if projectDir == "" {
 		projectDir = os.Getenv("CLAUDE_PROJECT_DIR")
@@ -32,7 +38,6 @@ func Check(gate, cwd string, stdout io.Writer) error {
 		var err error
 		projectDir, err = os.Getwd()
 		if err != nil {
-			// Fail-open: cannot determine project dir.
 			_, _ = stdout.Write(AllowOutput())
 			return fmt.Errorf("gitgate: resolve cwd: %w", err)
 		}
@@ -41,7 +46,6 @@ func Check(gate, cwd string, stdout io.Writer) error {
 	configPath := filepath.Join(projectDir, "openspec", "config.yaml")
 	cfg, err := ReadConfig(configPath)
 	if err != nil {
-		// Fail-open on config read error.
 		_, _ = stdout.Write(AllowOutput())
 		return fmt.Errorf("gitgate: read config: %w", err)
 	}
@@ -50,7 +54,6 @@ func Check(gate, cwd string, stdout io.Writer) error {
 	sentinelPath := SentinelPath(projectDir, gate)
 	consumed, err := ConsumeSentinel(sentinelPath)
 	if err != nil {
-		// Sentinel delete failure: treat as not consumed, continue.
 		consumed = false
 	}
 
@@ -61,11 +64,8 @@ func Check(gate, cwd string, stdout io.Writer) error {
 		return nil
 	}
 
-	// In Slice 0, the domain check is always allow.
-	// Real gate logic is added in Slices 1 and 2.
-	result := GateResult{Allowed: true, Mode: mode, SentinelConsumed: consumed}
-
-	// When sentinel was consumed under enforce (now degraded to warn), log it.
+	// When sentinel was consumed and we degraded from enforce → warn, log it
+	// before the domain check so it is always recorded.
 	if consumed && mode == ModeWarn {
 		entry := LogEntry{
 			Gate:     gate,
@@ -78,25 +78,52 @@ func Check(gate, cwd string, stdout io.Writer) error {
 		_, _ = fmt.Fprintf(os.Stderr, "WARNING [git-gate/%s]: break-glass sentinel consumed; this operation runs with warnings only\n", gate)
 	}
 
+	// Run the domain check for the requested gate.
+	result, domainErr := runDomainCheck(gate, projectDir, cfg, stdin)
+	if domainErr != nil {
+		// Domain check failure: fail-open.
+		_, _ = stdout.Write(AllowOutput())
+		return fmt.Errorf("gitgate: domain check %s: %w", gate, domainErr)
+	}
+
 	if result.Allowed {
 		_, _ = stdout.Write(AllowOutput())
 		return nil
 	}
 
-	// Domain check failed (unreachable in Slice 0 stub, but wired for completeness).
-	if mode == ModeEnforce {
+	// Gate check failed. Apply the resolved mode.
+	switch mode {
+	case ModeEnforce:
 		_, _ = stdout.Write(DenyOutput(gate, result.Message))
-		return nil
+	case ModeWarn:
+		_, _ = stdout.Write(WarnOutput(gate, result.Message))
+		_, _ = fmt.Fprintf(os.Stderr, "WARNING [git-gate/%s]: %s\n", gate, result.Message)
+		entry := LogEntry{
+			Gate:   gate,
+			Mode:   mode,
+			Result: "warn",
+			Reason: result.Message,
+		}
+		_ = AppendLog(projectDir, gate, entry)
+	default:
+		// ModeOff is handled above; should not reach here.
+		_, _ = stdout.Write(AllowOutput())
 	}
-	// mode == ModeWarn: allow + emit warning.
-	_, _ = stdout.Write(WarnOutput(gate, result.Message))
-	_, _ = fmt.Fprintf(os.Stderr, "WARNING [git-gate/%s]: %s\n", gate, result.Message)
-	entry := LogEntry{
-		Gate:   gate,
-		Mode:   mode,
-		Result: "warn",
-		Reason: result.Message,
-	}
-	_ = AppendLog(projectDir, gate, entry)
+
 	return nil
+}
+
+// runDomainCheck dispatches to the gate-specific check function.
+// Returns GateResult{Allowed: true} for unknown gate names (fail-open).
+func runDomainCheck(gate, cwd string, cfg Config, stdin io.Reader) (GateResult, error) {
+	switch gate {
+	case "branch-base":
+		return CheckBranchBase(cwd, cfg, stdin)
+	case "orphan-upstream":
+		return CheckOrphanUpstream(cwd, cfg, stdin)
+	default:
+		// Unknown gate: treat as no-op (allow). This preserves backward
+		// compatibility if new gate names are added before the binary is updated.
+		return GateResult{Allowed: true}, nil
+	}
 }
