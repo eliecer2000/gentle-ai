@@ -318,8 +318,11 @@ func TestOrphanUpstreamIntegrationViaCheck(t *testing.T) {
 		if err != nil {
 			t.Fatalf("log file not found: %v", err)
 		}
-		if !strings.Contains(string(data), "orphan-upstream") {
-			t.Errorf("log missing orphan-upstream entry: %q", data)
+		// Assert the config-warn override path is recorded: the line format is
+		// "<ts> <gate> <mode> <override> <result> <reason>", so a config-set warn
+		// must record override="config" (distinct from the sentinel path).
+		if !strings.Contains(string(data), "orphan-upstream warn config") {
+			t.Errorf("log missing config-override warn entry: %q", data)
 		}
 	})
 }

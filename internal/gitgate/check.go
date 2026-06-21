@@ -99,10 +99,11 @@ func CheckWithStdin(gate, cwd string, stdin io.Reader, stdout io.Writer) error {
 		_, _ = stdout.Write(WarnOutput(gate, result.Message))
 		_, _ = fmt.Fprintf(os.Stderr, "WARNING [git-gate/%s]: %s\n", gate, result.Message)
 		entry := LogEntry{
-			Gate:   gate,
-			Mode:   mode,
-			Result: "warn",
-			Reason: result.Message,
+			Gate:     gate,
+			Mode:     mode,
+			Override: "config",
+			Result:   "warn",
+			Reason:   result.Message,
 		}
 		_ = AppendLog(projectDir, gate, entry)
 	default:
