@@ -11,6 +11,17 @@ context: |
   Style: gofmt (standard), go vet, no golangci-lint config found
 
 strict_tdd: true
+strict_workflow: true
+strict_workflow_gates:
+  branch-base: enforce
+  orphan-upstream: enforce
+  sequential-pr: warn
+
+sdd:
+  delivery_strategy: ""
+  chain_strategy: ""
+  current_parent_branch: ""
+  task_branches: []
 
 rules:
   proposal:
