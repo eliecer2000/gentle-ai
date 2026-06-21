@@ -91,6 +91,18 @@ type InstallState struct {
 	// False (zero value) = no deferred sync pending. Omitted from JSON when
 	// false for backward-compatibility with existing state files.
 	PendingSync bool `json:"pending_sync,omitempty"`
+
+	// StrictTDD persists whether the user enabled Strict TDD mode during install.
+	// When true, sdd.Inject adds the <!-- gentle-ai:strict-tdd-mode --> marker.
+	// Omitted from JSON when false so existing state files decode without error
+	// (zero value = disabled, backward-compatible).
+	StrictTDD bool `json:"strict_tdd,omitempty"`
+
+	// StrictWorkflow persists whether the user enabled Strict Workflow mode during
+	// install. When true, sdd.Inject adds the <!-- gentle-ai:strict-workflow-mode -->
+	// marker and the git-gate hooks are installed.
+	// Omitted from JSON when false (zero value = disabled, backward-compatible).
+	StrictWorkflow bool `json:"strict_workflow,omitempty"`
 }
 
 // Path returns the absolute path to the state file for the given home directory.
@@ -151,6 +163,8 @@ func MergeAgents(existing InstallState, newAgents []string) InstallState {
 		Persona:                     existing.Persona,
 		LastUpdateCheck:             existing.LastUpdateCheck,
 		PendingSync:                 existing.PendingSync,
+		StrictTDD:                   existing.StrictTDD,
+		StrictWorkflow:              existing.StrictWorkflow,
 	}
 }
 
