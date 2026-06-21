@@ -38,3 +38,6 @@ dist/
 
 # Git gate sentinel overrides and decision log (per-user, never committed)
 .gentle-ai/
+
+# Local-only build/install helper (per-user, never committed)
+/install-local.sh
