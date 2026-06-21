@@ -18,8 +18,10 @@ strict_workflow_gates:
   sequential-pr: warn
 
 sdd:
-  delivery_strategy: ""
-  chain_strategy: ""
+  # Persisted here so the orchestrator reads strategy from config on session start,
+  # avoiding re-ask across compactions. Updated by the orchestrator when spawning branches.
+  delivery_strategy: chained
+  chain_strategy: feature-branch-chain
   current_parent_branch: ""
   task_branches: []
 
