@@ -122,6 +122,8 @@ func runDomainCheck(gate, cwd string, cfg Config, stdin io.Reader) (GateResult, 
 		return CheckBranchBase(cwd, cfg, stdin)
 	case "orphan-upstream":
 		return CheckOrphanUpstream(cwd, cfg, stdin)
+	case "sequential-pr":
+		return checkSequentialPRWith(cwd, cfg, stdin, ghListOpenPRs)
 	default:
 		// Unknown gate: treat as no-op (allow). This preserves backward
 		// compatibility if new gate names are added before the binary is updated.
