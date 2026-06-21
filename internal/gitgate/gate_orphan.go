@@ -12,8 +12,10 @@ import (
 //
 // Rules:
 //   - If the stdin payload is not a git push command: return allowed (not applicable).
+//   - If the push command itself sets an origin upstream inline via -u /
+//     --set-upstream followed by "origin": return allowed. The command is
+//     establishing correct tracking, so blocking it would create a catch-22.
 //   - The branch must have branch.<name>.remote set to "origin".
-//   - The branch must have branch.<name>.merge set (non-empty).
 //   - Any deviation from the above blocks the push under enforce.
 //
 // Fail-open contract: any git execution error returns allowed.
@@ -26,6 +28,14 @@ func CheckOrphanUpstream(cwd string, cfg Config, stdin io.Reader) (GateResult, e
 
 	if !isPushCommand(cmd) {
 		// Not a push command: gate not applicable.
+		return GateResult{Allowed: true}, nil
+	}
+
+	// If the push itself sets origin as the upstream (-u / --set-upstream origin),
+	// allow it unconditionally: the command is establishing correct tracking and
+	// blocking it would create a catch-22 (you can't set origin upstream if the
+	// gate requires origin upstream to already exist).
+	if pushSetsOriginUpstream(cmd) {
 		return GateResult{Allowed: true}, nil
 	}
 

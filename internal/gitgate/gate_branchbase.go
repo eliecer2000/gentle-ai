@@ -33,11 +33,20 @@ func CheckBranchBase(cwd string, cfg Config, stdin io.Reader) (GateResult, error
 		return GateResult{Allowed: true}, nil
 	}
 
-	// Determine the current HEAD branch — this is the base of the new branch.
-	baseBranch, err := gitCurrentBranch(cwd)
-	if err != nil {
-		// Cannot determine base: fail-open.
-		return GateResult{Allowed: true}, nil
+	// If the command supplies an explicit start-point, validate that instead of
+	// current HEAD. This prevents git checkout -b feat/x <wrong-base> from
+	// passing because current HEAD happens to be an allowed branch.
+	var baseBranch string
+	if explicit := parseExplicitBranchBase(cmd); explicit != "" {
+		baseBranch = explicit
+	} else {
+		// No explicit base: fall back to current HEAD (original behavior).
+		var err2 error
+		baseBranch, err2 = gitCurrentBranch(cwd)
+		if err2 != nil {
+			// Cannot determine base: fail-open.
+			return GateResult{Allowed: true}, nil
+		}
 	}
 
 	// Determine which base branches are acceptable.

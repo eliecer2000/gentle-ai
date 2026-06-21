@@ -133,6 +133,80 @@ func TestCheckOrphanUpstream(t *testing.T) {
 	}
 }
 
+// TestCheckOrphanUpstreamInlinePush covers the catch-22 fix: git push -u origin
+// HEAD must be allowed even when no upstream config exists yet, because the
+// command itself is establishing the correct origin tracking.
+func TestCheckOrphanUpstreamInlinePush(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires git binary")
+	}
+
+	cfg := Config{
+		StrictWorkflow: true,
+		Gates:          map[string]GateMode{"orphan-upstream": ModeEnforce},
+	}
+
+	setup := func(t *testing.T) string {
+		t.Helper()
+		dir := t.TempDir()
+		run(t, dir, "git", "init", ".")
+		run(t, dir, "git", "config", "user.email", "test@example.com")
+		run(t, dir, "git", "config", "user.name", "Test")
+		run(t, dir, "git", "commit", "--allow-empty", "-m", "init")
+		run(t, dir, "git", "checkout", "-B", "feat/new-branch")
+		// No upstream config set — simulates a fresh branch before first push.
+		return dir
+	}
+
+	t.Run("git push -u origin HEAD with no pre-existing upstream → allow (catch-22 fix)", func(t *testing.T) {
+		dir := setup(t)
+		payload := `{"tool_name":"Bash","tool_input":{"command":"git push -u origin HEAD"}}`
+		result, err := CheckOrphanUpstream(dir, cfg, strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("CheckOrphanUpstream: %v", err)
+		}
+		if !result.Allowed {
+			t.Errorf("expected allow for inline -u origin push, got deny: %q", result.Message)
+		}
+	})
+
+	t.Run("git push --set-upstream origin HEAD with no pre-existing upstream → allow", func(t *testing.T) {
+		dir := setup(t)
+		payload := `{"tool_name":"Bash","tool_input":{"command":"git push --set-upstream origin HEAD"}}`
+		result, err := CheckOrphanUpstream(dir, cfg, strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("CheckOrphanUpstream: %v", err)
+		}
+		if !result.Allowed {
+			t.Errorf("expected allow for inline --set-upstream origin push, got deny: %q", result.Message)
+		}
+	})
+
+	t.Run("git push -u fork HEAD (non-origin inline) → deny", func(t *testing.T) {
+		dir := setup(t)
+		payload := `{"tool_name":"Bash","tool_input":{"command":"git push -u fork HEAD"}}`
+		result, err := CheckOrphanUpstream(dir, cfg, strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("CheckOrphanUpstream: %v", err)
+		}
+		if result.Allowed {
+			t.Errorf("expected deny for inline -u fork push (non-origin), got allow")
+		}
+	})
+
+	t.Run("bare git push with no upstream → deny (unchanged behavior)", func(t *testing.T) {
+		dir := setup(t)
+		payload := `{"tool_name":"Bash","tool_input":{"command":"git push"}}`
+		result, err := CheckOrphanUpstream(dir, cfg, strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("CheckOrphanUpstream: %v", err)
+		}
+		if result.Allowed {
+			t.Errorf("expected deny for bare push with no upstream, got allow")
+		}
+	})
+}
+
 // TestCheckOrphanUpstreamStdinEdgeCases covers stdin parsing edge cases.
 func TestCheckOrphanUpstreamStdinEdgeCases(t *testing.T) {
 	cfg := Config{

@@ -84,3 +84,77 @@ func isPushCommand(cmd string) bool {
 	}
 	return fields[0] == "git" && fields[1] == "push"
 }
+
+// pushSetsOriginUpstream reports whether cmd is a git push that explicitly
+// sets an origin upstream inline via -u / --set-upstream followed by the
+// remote name "origin". When true, the push command itself establishes correct
+// origin tracking, so the orphan-upstream gate must allow it even if
+// branch.<name>.remote is not yet configured.
+func pushSetsOriginUpstream(cmd string) bool {
+	fields := strings.Fields(cmd)
+	if len(fields) < 2 {
+		return false
+	}
+	if fields[0] != "git" || fields[1] != "push" {
+		return false
+	}
+	args := fields[2:]
+	setUpstream := false
+	for i, f := range args {
+		if f == "-u" || f == "--set-upstream" {
+			setUpstream = true
+			continue
+		}
+		// The first non-flag argument after -u/--set-upstream is the remote name.
+		if setUpstream && !strings.HasPrefix(f, "-") {
+			_ = i
+			return f == "origin"
+		}
+	}
+	return false
+}
+
+// parseExplicitBranchBase returns the explicit start-point argument from a
+// git new-branch command, or "" when none is provided.
+//
+// Recognised forms:
+//   - git checkout -b <new> <base>
+//   - git checkout -B <new> <base>
+//   - git branch <new> <base>
+func parseExplicitBranchBase(cmd string) string {
+	fields := strings.Fields(cmd)
+	if len(fields) < 2 {
+		return ""
+	}
+	if fields[0] != "git" {
+		return ""
+	}
+	switch fields[1] {
+	case "checkout":
+		// Find -b/-B flag position; the argument after it is <new>, the one after
+		// that (if present and non-flag) is the explicit <base>.
+		for i, f := range fields[2:] {
+			idx := i + 2 // index in fields
+			if f == "-b" || f == "-B" {
+				// fields[idx+1] = <new>, fields[idx+2] = <base> (if present)
+				if idx+2 < len(fields) && !strings.HasPrefix(fields[idx+2], "-") {
+					return fields[idx+2]
+				}
+				return ""
+			}
+		}
+	case "branch":
+		// git branch <new> [base] — skip flag arguments.
+		nonFlag := []string{}
+		for _, f := range fields[2:] {
+			if !strings.HasPrefix(f, "-") {
+				nonFlag = append(nonFlag, f)
+			}
+		}
+		// nonFlag[0] = <new>, nonFlag[1] = <base> (if present)
+		if len(nonFlag) >= 2 {
+			return nonFlag[1]
+		}
+	}
+	return ""
+}

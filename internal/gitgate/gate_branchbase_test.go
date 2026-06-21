@@ -213,6 +213,77 @@ func TestCheckBranchBase(t *testing.T) {
 	}
 }
 
+// TestCheckBranchBaseExplicitStartPoint covers Bug 2: when an explicit base is
+// provided in the command (git checkout -b <new> <base> or git branch <new>
+// <base>), the gate must validate THAT explicit base, not current HEAD.
+func TestCheckBranchBaseExplicitStartPoint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires git binary")
+	}
+
+	bareDir := t.TempDir()
+	bareURL := initBareRepo(t, bareDir)
+
+	workDir := t.TempDir()
+	initWorkingRepo(t, workDir, bareURL)
+
+	cfg := Config{
+		StrictWorkflow: true,
+		Gates:          map[string]GateMode{"branch-base": ModeEnforce},
+	}
+
+	t.Run("explicit wrong base while on main → deny", func(t *testing.T) {
+		// HEAD is on main (allowed), but explicit base is 'some-stale-or-wrong-base'
+		// which is not in the allowed list. Bug: before fix this would PASS because
+		// it only checked current HEAD (main), ignoring the explicit base argument.
+		payload := `{"tool_name":"Bash","tool_input":{"command":"git checkout -b feat/x some-stale-or-wrong-base"}}`
+		result, err := CheckBranchBase(workDir, cfg, strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("CheckBranchBase: %v", err)
+		}
+		if result.Allowed {
+			t.Errorf("expected deny for explicit disallowed base 'some-stale-or-wrong-base', got allow")
+		}
+	})
+
+	t.Run("git branch <new> <wrong-base> → deny", func(t *testing.T) {
+		payload := `{"tool_name":"Bash","tool_input":{"command":"git branch feat/y some-wrong-base"}}`
+		result, err := CheckBranchBase(workDir, cfg, strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("CheckBranchBase: %v", err)
+		}
+		if result.Allowed {
+			t.Errorf("expected deny for explicit disallowed base via git branch, got allow")
+		}
+	})
+
+	t.Run("explicit allowed+fresh base → allow", func(t *testing.T) {
+		// Push main to origin so origin/main exists and is up to date.
+		// git checkout -b feat/z main (explicit base = main, which is up-to-date).
+		payload := `{"tool_name":"Bash","tool_input":{"command":"git checkout -b feat/z main"}}`
+		result, err := CheckBranchBase(workDir, cfg, strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("CheckBranchBase: %v", err)
+		}
+		if !result.Allowed {
+			t.Errorf("expected allow for explicit allowed+fresh base 'main', got deny: %q", result.Message)
+		}
+	})
+
+	t.Run("no explicit base (git checkout -b feat/q) → uses HEAD as before", func(t *testing.T) {
+		// Ensure we're on main (allowed base).
+		run(t, workDir, "git", "checkout", "main")
+		payload := `{"tool_name":"Bash","tool_input":{"command":"git checkout -b feat/q"}}`
+		result, err := CheckBranchBase(workDir, cfg, strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("CheckBranchBase: %v", err)
+		}
+		if !result.Allowed {
+			t.Errorf("expected allow when on main with no explicit base, got deny: %q", result.Message)
+		}
+	})
+}
+
 // TestCheckBranchBaseStdinEdgeCases covers edge cases around stdin parsing.
 func TestCheckBranchBaseStdinEdgeCases(t *testing.T) {
 	cfg := Config{
