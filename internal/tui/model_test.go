@@ -6725,8 +6725,19 @@ func TestStrictTDDForward(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := tt.setup(t)
-			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-			got := updated.(Model)
+
+			// First Enter: StrictTDD → StrictWorkflow (always, regardless of flags).
+			mid, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			midModel := mid.(Model)
+			if midModel.Screen != ScreenStrictWorkflow {
+				t.Fatalf("intermediate screen = %v, want ScreenStrictWorkflow", midModel.Screen)
+			}
+
+			// Set cursor to Enable on the StrictWorkflow screen, then second Enter
+			// fires the guard routing to the case's expected destination.
+			midModel.Cursor = screens.StrictWorkflowOptionEnable
+			final, _ := midModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			got := final.(Model)
 			if got.Screen != tt.wantScreen {
 				t.Fatalf("screen = %v, want %v", got.Screen, tt.wantScreen)
 			}

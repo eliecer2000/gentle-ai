@@ -411,7 +411,8 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // Kiro preset → Codex picker
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // Codex preset → SDDMode
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // SDDMode single → StrictTDD
-				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // StrictTDD → OpenCodePlugins
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // StrictTDD → StrictWorkflow
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // StrictWorkflow → OpenCodePlugins
 				{key: tea.KeyMsg{Type: tea.KeyEnter}, cursor: continuePluginsCursor, setCursor: true},       // OpenCodePlugins → DependencyTree
 			},
 			forwardScreens: []Screen{
@@ -420,11 +421,13 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 				ScreenCodexModelPicker,
 				ScreenSDDMode,
 				ScreenStrictTDD,
+				ScreenStrictWorkflow,
 				ScreenOpenCodePlugins,
 				ScreenDependencyTree,
 			},
 			reverseScreens: []Screen{
 				ScreenOpenCodePlugins,
+				ScreenStrictWorkflow,
 				ScreenStrictTDD,
 				ScreenSDDMode,
 				ScreenCodexModelPicker, // regression: SDDMode back must hit Codex, not skip to Claude
@@ -469,7 +472,8 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 						return state
 					},
 				}, // ModelPicker Continue → StrictTDD
-				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                 // StrictTDD → OpenCodePlugins
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                 // StrictTDD → StrictWorkflow
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                 // StrictWorkflow → OpenCodePlugins
 				{key: tea.KeyMsg{Type: tea.KeyEnter}, cursor: continuePluginsCursor, setCursor: true}, // OpenCodePlugins → DependencyTree
 			},
 			forwardScreens: []Screen{
@@ -479,11 +483,13 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 				ScreenSDDMode,
 				ScreenModelPicker,
 				ScreenStrictTDD,
+				ScreenStrictWorkflow,
 				ScreenOpenCodePlugins,
 				ScreenDependencyTree,
 			},
 			reverseScreens: []Screen{
 				ScreenOpenCodePlugins,
+				ScreenStrictWorkflow,
 				ScreenStrictTDD,
 				ScreenModelPicker,
 				ScreenSDDMode,
