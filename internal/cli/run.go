@@ -36,6 +36,9 @@ import (
 	"github.com/gentleman-programming/gentle-ai/internal/verify"
 )
 
+// InstallResult carries all outputs produced by a single RunInstall call,
+// including the resolved selection, stage plan, execution result, and
+// post-apply verification report. DryRun=true means no side effects occurred.
 type InstallResult struct {
 	Selection    model.Selection
 	Resolved     planner.ResolvedPlan
@@ -85,6 +88,9 @@ func SetCommandOutputStreaming(enabled bool) func() {
 	}
 }
 
+// RunInstall parses the install flags, resolves the selection and stage plan,
+// executes the install pipeline, and returns a complete InstallResult.
+// When flags.DryRun is set, execution is skipped and only the plan is returned.
 func RunInstall(args []string, detection system.DetectionResult) (InstallResult, error) {
 	flags, err := ParseInstallFlags(args)
 	if err != nil {
@@ -416,6 +422,9 @@ func newInstallRuntime(homeDir string, scope InstallScope, channel InstallChanne
 		return nil, fmt.Errorf("create backup root directory %q: %w", backupRoot, err)
 	}
 
+	// os.Getwd failure is intentionally ignored: resolveOpenClawWorkspaceDir
+	// falls back to the home directory when workspaceDir is empty, so the
+	// install proceeds safely even if the cwd is unavailable (e.g. deleted dir).
 	workspaceDir, _ := os.Getwd()
 	workspaceDir = resolveOpenClawWorkspaceDir(homeDir, workspaceDir, resolved.Agents)
 
@@ -669,6 +678,24 @@ func (s componentApplyStep) ID() string {
 	return s.id
 }
 
+// buildSDDInjectOptions constructs the sdd.InjectOptions from a Selection and
+// workspaceDir. Extracted from componentApplyStep.Run() so the mapping is
+// unit-testable independently of adapter and filesystem setup.
+func buildSDDInjectOptions(sel model.Selection, workspaceDir string) sdd.InjectOptions {
+	return sdd.InjectOptions{
+		OpenCodeModelAssignments:    sel.ModelAssignments,
+		ClaudeModelAssignments:      sel.ClaudeModelAssignments,
+		ClaudePhaseAssignments:      sel.ClaudePhaseAssignments,
+		KiroModelAssignments:        sel.KiroModelAssignments,
+		CodexModelAssignments:       sel.CodexModelAssignments,
+		CodexCarrilModelAssignments: sel.CodexCarrilModelAssignments,
+		CodexPhaseModelAssignments:  sel.CodexPhaseModelAssignments,
+		WorkspaceDir:                workspaceDir,
+		StrictTDD:                   sel.StrictTDD,
+		StrictWorkflow:              sel.StrictWorkflow,
+	}
+}
+
 // resolveAdapters creates adapters for each agent ID, skipping unsupported ones.
 func resolveAdapters(agentIDs []model.AgentID) []agents.Adapter {
 	adapters := make([]agents.Adapter, 0, len(agentIDs))
@@ -778,17 +805,7 @@ func (s componentApplyStep) Run() error {
 	case model.ComponentSDD:
 		for _, adapter := range adapters {
 			targetDir := componentInjectionDirScoped(s.homeDir, s.workspaceDir, s.scope, adapter)
-			opts := sdd.InjectOptions{
-				OpenCodeModelAssignments:    s.selection.ModelAssignments,
-				ClaudeModelAssignments:      s.selection.ClaudeModelAssignments,
-				ClaudePhaseAssignments:      s.selection.ClaudePhaseAssignments,
-				KiroModelAssignments:        s.selection.KiroModelAssignments,
-				CodexModelAssignments:       s.selection.CodexModelAssignments,
-				CodexCarrilModelAssignments: s.selection.CodexCarrilModelAssignments,
-				CodexPhaseModelAssignments:  s.selection.CodexPhaseModelAssignments,
-				WorkspaceDir:                s.workspaceDir,
-				StrictTDD:                   s.selection.StrictTDD,
-			}
+			opts := buildSDDInjectOptions(s.selection, s.workspaceDir)
 			if _, err := sdd.Inject(targetDir, adapter, s.selection.SDDMode, opts); err != nil {
 				return fmt.Errorf("inject sdd for %q: %w", adapter.Agent(), err)
 			}
@@ -1355,7 +1372,7 @@ func runPostApplyVerification(homeDir, workspaceDir string, scope InstallScope, 
 				Description: "legacy OpenCode background agents plugin removed",
 				Run: func(context.Context) error {
 					if _, err := os.Stat(path); err != nil {
-						if os.IsNotExist(err) {
+						if errors.Is(err, os.ErrNotExist) {
 							return nil
 						}
 						return err
