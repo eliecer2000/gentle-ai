@@ -841,6 +841,166 @@ func TestMergeAgents_PreservesPendingSync(t *testing.T) {
 	}
 }
 
+// ─── Slice 0a RED: StrictTDD + StrictWorkflow persistence ───────────────────
+
+// TestInstallStateStrictFieldsPersistence verifies that StrictTDD and
+// StrictWorkflow survive a Write/Read cycle and that old state.json files
+// missing the fields default to false (zero-value back-compat).
+func TestInstallStateStrictFieldsPersistence(t *testing.T) {
+	tests := []struct {
+		name          string
+		state         InstallState
+		wantStrictTDD bool
+		wantStrictWF  bool
+	}{
+		{
+			name: "StrictWorkflow round-trips via Write/Read",
+			state: InstallState{
+				InstalledAgents: []string{"claude-code"},
+				StrictWorkflow:  true,
+			},
+			wantStrictTDD: false,
+			wantStrictWF:  true,
+		},
+		{
+			name: "StrictTDD round-trips via Write/Read",
+			state: InstallState{
+				InstalledAgents: []string{"claude-code"},
+				StrictTDD:       true,
+			},
+			wantStrictTDD: true,
+			wantStrictWF:  false,
+		},
+		{
+			name: "zero-value new install yields false for both fields",
+			state: InstallState{
+				InstalledAgents: []string{"claude-code"},
+			},
+			wantStrictTDD: false,
+			wantStrictWF:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := Write(home, tt.state); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+			got, err := Read(home)
+			if err != nil {
+				t.Fatalf("Read() error = %v", err)
+			}
+			if got.StrictTDD != tt.wantStrictTDD {
+				t.Errorf("StrictTDD = %v, want %v", got.StrictTDD, tt.wantStrictTDD)
+			}
+			if got.StrictWorkflow != tt.wantStrictWF {
+				t.Errorf("StrictWorkflow = %v, want %v", got.StrictWorkflow, tt.wantStrictWF)
+			}
+		})
+	}
+}
+
+// TestInstallStateStrictFields_OldStateBackCompat verifies that a state.json
+// written without strict_tdd or strict_workflow keys deserializes with both
+// fields defaulting to false — no error, no panic.
+func TestInstallStateStrictFields_OldStateBackCompat(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, stateDir), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	// Legacy format: no strict_tdd or strict_workflow keys present.
+	legacy := `{"installed_agents":["claude-code"]}` + "\n"
+	if err := os.WriteFile(Path(home), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	s, err := Read(home)
+	if err != nil {
+		t.Fatalf("Read() returned unexpected error for legacy state: %v", err)
+	}
+	if s.StrictTDD {
+		t.Errorf("StrictTDD = true for legacy state, want false")
+	}
+	if s.StrictWorkflow {
+		t.Errorf("StrictWorkflow = true for legacy state, want false")
+	}
+}
+
+// TestInstallStateStrictFields_OmitWhenFalse verifies that both fields are
+// absent from the serialized JSON when false (omitempty for back-compat).
+func TestInstallStateStrictFields_OmitWhenFalse(t *testing.T) {
+	home := t.TempDir()
+	s := InstallState{InstalledAgents: []string{"claude-code"}}
+	if err := Write(home, s); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	data, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if contains(string(data), "strict_tdd") {
+		t.Error("JSON must not contain strict_tdd when false")
+	}
+	if contains(string(data), "strict_workflow") {
+		t.Error("JSON must not contain strict_workflow when false")
+	}
+}
+
+// TestMergeAgentsCarriesStrictFields verifies that MergeAgents preserves
+// StrictTDD and StrictWorkflow from the existing state into the merged result.
+func TestMergeAgentsCarriesStrictFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing InstallState
+	}{
+		{
+			name: "StrictTDD=true preserved",
+			existing: InstallState{
+				InstalledAgents: []string{"claude-code"},
+				StrictTDD:       true,
+			},
+		},
+		{
+			name: "StrictWorkflow=true preserved",
+			existing: InstallState{
+				InstalledAgents: []string{"claude-code"},
+				StrictWorkflow:  true,
+			},
+		},
+		{
+			name: "both true preserved",
+			existing: InstallState{
+				InstalledAgents: []string{"claude-code"},
+				StrictTDD:       true,
+				StrictWorkflow:  true,
+			},
+		},
+		{
+			name: "both false preserved (zero value, not silently overwritten)",
+			existing: InstallState{
+				InstalledAgents: []string{"claude-code"},
+				StrictTDD:       false,
+				StrictWorkflow:  false,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			merged := MergeAgents(tt.existing, []string{"opencode"})
+			if merged.StrictTDD != tt.existing.StrictTDD {
+				t.Errorf("MergeAgents did not preserve StrictTDD: got %v, want %v",
+					merged.StrictTDD, tt.existing.StrictTDD)
+			}
+			if merged.StrictWorkflow != tt.existing.StrictWorkflow {
+				t.Errorf("MergeAgents did not preserve StrictWorkflow: got %v, want %v",
+					merged.StrictWorkflow, tt.existing.StrictWorkflow)
+			}
+		})
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && findSub(s, substr)
 }
