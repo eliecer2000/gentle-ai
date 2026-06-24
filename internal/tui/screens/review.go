@@ -48,13 +48,19 @@ func RenderReview(payload planner.ReviewPayload, cursor int) string {
 			}
 		}
 
-		// Issue #149: show Strict TDD status when SDD is in the plan.
+		// Issue #149: show Strict TDD and Strict Workflow status when SDD is in the plan.
 		if payload.HasSDD {
 			strictLabel := "Disabled"
 			if payload.StrictTDD {
 				strictLabel = "Enabled"
 			}
 			b.WriteString("  " + styles.HeadingStyle.Render("Strict TDD") + "  " + styles.UnselectedStyle.Render(strictLabel) + "\n")
+
+			workflowLabel := "Disabled"
+			if payload.StrictWorkflow {
+				workflowLabel = "Enabled"
+			}
+			b.WriteString("  " + styles.HeadingStyle.Render("Strict Workflow") + "  " + styles.UnselectedStyle.Render(workflowLabel) + "\n")
 		}
 
 		b.WriteString("\n")

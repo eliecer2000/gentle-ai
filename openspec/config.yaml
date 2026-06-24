@@ -11,6 +11,19 @@ context: |
   Style: gofmt (standard), go vet, no golangci-lint config found
 
 strict_tdd: true
+strict_workflow: true
+strict_workflow_gates:
+  branch-base: enforce
+  orphan-upstream: enforce
+  sequential-pr: warn
+
+sdd:
+  # Persisted here so the orchestrator reads strategy from config on session start,
+  # avoiding re-ask across compactions. Updated by the orchestrator when spawning branches.
+  delivery_strategy: chained
+  chain_strategy: feature-branch-chain
+  current_parent_branch: ""
+  task_branches: []
 
 rules:
   proposal:

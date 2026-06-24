@@ -35,3 +35,9 @@ dist/
 # Engram local runtime state (project sync chunks are intentionally versioned)
 .engram/engram.db
 .engram/cloud.json
+
+# Git gate sentinel overrides and decision log (per-user, never committed)
+.gentle-ai/
+
+# Local-only build/install helper (per-user, never committed)
+/install-local.sh

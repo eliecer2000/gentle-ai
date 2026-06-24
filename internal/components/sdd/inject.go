@@ -43,6 +43,11 @@ type InjectOptions struct {
 	// the agent's system prompt so agents know Strict TDD is active.
 	StrictTDD bool
 
+	// StrictWorkflow enables Strict Workflow mode. When true, a
+	// <!-- gentle-ai:strict-workflow-mode --> marker section is injected into
+	// the agent's system prompt so the sequential-branches skill activates.
+	StrictWorkflow bool
+
 	// Profiles lists named SDD profiles to generate and merge into the
 	// OpenCode settings file. The default profile (Name="" or Name="default")
 	// is skipped — it is handled by the existing flow.
@@ -385,6 +390,43 @@ func Inject(homeDir string, adapter agents.Adapter, sddMode model.SDDModeID, opt
 		}
 	}
 
+	// 1c. If StrictWorkflow is enabled, inject the strict-workflow-mode marker section
+	// so the sequential-branches skill activates on task start.
+	if opts.StrictWorkflow && adapter.Agent() != model.AgentOpenCode && adapter.Agent() != model.AgentKilocode {
+		if adapter.SystemPromptStrategy() == model.StrategyJinjaModules {
+			configDir := adapter.GlobalConfigDir(homeDir)
+			modulePath := filepath.Join(configDir, "strict-workflow-mode.md")
+			writeResult, err := filemerge.WriteFileAtomic(modulePath, []byte("Strict Workflow Mode: enabled"), 0o644)
+			if err != nil {
+				return InjectionResult{}, err
+			}
+			changed = changed || writeResult.Changed
+			files = append(files, modulePath)
+		} else {
+			promptPath := adapter.SystemPromptFile(homeDir)
+			existing, readErr := readFileOrEmpty(promptPath)
+			if readErr != nil {
+				return InjectionResult{}, readErr
+			}
+			updated := filemerge.InjectMarkdownSection(existing, "strict-workflow-mode", "Strict Workflow Mode: enabled")
+			writeResult, writeErr := filemerge.WriteFileAtomic(promptPath, []byte(updated), 0o644)
+			if writeErr != nil {
+				return InjectionResult{}, writeErr
+			}
+			changed = changed || writeResult.Changed
+			alreadyInFiles := false
+			for _, f := range files {
+				if f == promptPath {
+					alreadyInFiles = true
+					break
+				}
+			}
+			if !alreadyInFiles {
+				files = append(files, promptPath)
+			}
+		}
+	}
+
 	// 2. Write slash commands (if the agent supports them).
 	if adapter.SupportsSlashCommands() {
 		commandsDir := adapter.CommandsDir(homeDir)
@@ -713,7 +755,7 @@ func Inject(homeDir string, adapter agents.Adapter, sddMode model.SDDModeID, opt
 	// This keeps `.atl/skill-registry.md` fresh without making the orchestrator
 	// spend tokens rescanning skills on every session. The command itself is
 	// fingerprint-cached, so normal startup is cheap.
-	automationResult, err := installSkillRegistryAutomation(homeDir, adapter)
+	automationResult, err := installSkillRegistryAutomation(homeDir, adapter, opts.StrictWorkflow)
 	if err != nil {
 		return InjectionResult{}, err
 	}
@@ -1198,7 +1240,7 @@ func readMisnamedOpenCodeGentlemanSDDPrompt(settingsPath string) (string, error)
 	return prompt, nil
 }
 
-func installSkillRegistryAutomation(homeDir string, adapter agents.Adapter) (InjectionResult, error) {
+func installSkillRegistryAutomation(homeDir string, adapter agents.Adapter, strictWorkflow bool) (InjectionResult, error) {
 	if adapter.Agent() == model.AgentCodex {
 		hooksPath := filepath.Join(adapter.GlobalConfigDir(homeDir), "hooks.json")
 		changed, err := ensureCodexSkillRegistryHook(hooksPath)
@@ -1214,10 +1256,21 @@ func installSkillRegistryAutomation(homeDir string, adapter agents.Adapter) (Inj
 	if settingsPath == "" {
 		return InjectionResult{}, nil
 	}
+
 	changed, err := ensureClaudeSkillRegistryHook(settingsPath)
 	if err != nil {
 		return InjectionResult{}, fmt.Errorf("install Claude skill-registry hook: %w", err)
 	}
+
+	// Install git-gate hooks when StrictWorkflow is enabled.
+	if strictWorkflow {
+		gateChanged, gateErr := ensureClaudeGitGateHook(settingsPath, homeDir)
+		if gateErr != nil {
+			return InjectionResult{}, fmt.Errorf("install Claude git-gate hooks: %w", gateErr)
+		}
+		changed = changed || gateChanged
+	}
+
 	return InjectionResult{Changed: changed, Files: []string{settingsPath}}, nil
 }
 
@@ -1273,6 +1326,79 @@ func ensureCodexSkillRegistryHook(hooksPath string) (bool, error) {
 		return false, err
 	}
 	wr, err := filemerge.WriteFileAtomic(hooksPath, out, 0o644)
+	if err != nil {
+		return false, err
+	}
+	return wr.Changed, nil
+}
+
+// ensureClaudeGitGateHook installs one PreToolUse hook entry per gate into
+// the Claude settings file. Each hook calls `gentle-ai git-gate check` with
+// the appropriate --gate flag. The function is idempotent: it checks for an
+// existing hook command before inserting and returns changed=false when all
+// three gate hooks are already present.
+//
+// The cwd parameter is accepted for future use (e.g. project-relative binary
+// resolution) but is not currently used in the hook command template.
+func ensureClaudeGitGateHook(settingsPath, _ string) (bool, error) {
+	root := map[string]any{}
+	if data, err := os.ReadFile(settingsPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+		if err := json.Unmarshal(data, &root); err != nil {
+			return false, fmt.Errorf("parse Claude settings %q: %w", settingsPath, err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+
+	gates := []string{"branch-base", "orphan-upstream", "sequential-pr"}
+	changed := false
+
+	hooksRaw, hasHooks := root["hooks"]
+	hooksMap, _ := hooksRaw.(map[string]any)
+	if hasHooks && hooksMap == nil {
+		return false, fmt.Errorf("Claude settings %q has unsupported hooks shape: want object", settingsPath)
+	}
+	if hooksMap == nil {
+		hooksMap = map[string]any{}
+	}
+
+	preToolUseRaw, hasPreToolUse := hooksMap["PreToolUse"]
+	preToolUse, _ := preToolUseRaw.([]any)
+	if hasPreToolUse && preToolUse == nil {
+		return false, fmt.Errorf("Claude settings %q has unsupported hooks.PreToolUse shape: want array", settingsPath)
+	}
+
+	for _, gate := range gates {
+		command := fmt.Sprintf(`gentle-ai git-gate check --gate %s --cwd "${CLAUDE_PROJECT_DIR:-$PWD}"`, gate)
+		if claudeHookExists(root, command) {
+			continue
+		}
+		preToolUse = append(preToolUse, map[string]any{
+			"matcher": "Bash",
+			"hooks": []any{
+				map[string]any{
+					"type":    "command",
+					"command": command,
+					"timeout": 30,
+				},
+			},
+		})
+		changed = true
+	}
+
+	if !changed {
+		return false, nil
+	}
+
+	hooksMap["PreToolUse"] = preToolUse
+	root["hooks"] = hooksMap
+
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return false, err
+	}
+	out = append(out, '\n')
+	wr, err := filemerge.WriteFileAtomic(settingsPath, out, 0o644)
 	if err != nil {
 		return false, err
 	}
@@ -1336,7 +1462,7 @@ func claudeHookExists(root map[string]any, command string) bool {
 	if !ok {
 		return false
 	}
-	for _, key := range []string{"UserPromptSubmit", "SessionStart"} {
+	for _, key := range []string{"UserPromptSubmit", "SessionStart", "PreToolUse"} {
 		hookEntries, ok := hooksMap[key].([]any)
 		if !ok {
 			continue

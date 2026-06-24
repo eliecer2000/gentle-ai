@@ -6619,3 +6619,103 @@ func TestMigrateLegacyOpenCodeCommandPromptNoOp(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ensureClaudeGitGateHook tests (Slice 0b, task 1.11.1)
+// ---------------------------------------------------------------------------
+
+func TestEnsureClaudeGitGateHook(t *testing.T) {
+	t.Run("fresh settings file: three PreToolUse hook entries inserted (one per gate)", func(t *testing.T) {
+		home := t.TempDir()
+		settingsPath := filepath.Join(home, ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// Start with an empty JSON object.
+		if err := os.WriteFile(settingsPath, []byte(`{}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		changed, err := ensureClaudeGitGateHook(settingsPath, home)
+		if err != nil {
+			t.Fatalf("ensureClaudeGitGateHook() error = %v", err)
+		}
+		if !changed {
+			t.Fatal("first call changed = false, want true")
+		}
+
+		data, err := os.ReadFile(settingsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+
+		// All three gate hook commands must be present.
+		for _, gate := range []string{"branch-base", "orphan-upstream", "sequential-pr"} {
+			if !strings.Contains(text, "--gate "+gate) {
+				t.Errorf("missing hook for gate %q in:\n%s", gate, text)
+			}
+		}
+
+		// All three must be PreToolUse hooks.
+		if !strings.Contains(text, `"PreToolUse"`) {
+			t.Errorf("missing PreToolUse hook key in:\n%s", text)
+		}
+	})
+
+	t.Run("idempotent: second call returns changed=false, no duplicate entries", func(t *testing.T) {
+		home := t.TempDir()
+		settingsPath := filepath.Join(home, ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(settingsPath, []byte(`{}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := ensureClaudeGitGateHook(settingsPath, home); err != nil {
+			t.Fatal(err)
+		}
+		changed, err := ensureClaudeGitGateHook(settingsPath, home)
+		if err != nil {
+			t.Fatalf("second call error = %v", err)
+		}
+		if changed {
+			t.Fatal("second call changed = true, want false (idempotent)")
+		}
+
+		data, err := os.ReadFile(settingsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+
+		// Each gate command must appear exactly once.
+		for _, gate := range []string{"branch-base", "orphan-upstream", "sequential-pr"} {
+			cmd := "--gate " + gate
+			if count := strings.Count(text, cmd); count != 1 {
+				t.Errorf("gate %q command appears %d times, want 1:\n%s", gate, count, text)
+			}
+		}
+	})
+
+	t.Run("malformed JSON: returns parse error", func(t *testing.T) {
+		home := t.TempDir()
+		settingsPath := filepath.Join(home, ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		original := []byte(`{"hooks":`)
+		if err := os.WriteFile(settingsPath, original, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		changed, err := ensureClaudeGitGateHook(settingsPath, home)
+		if err == nil {
+			t.Fatal("ensureClaudeGitGateHook() error = nil, want parse error")
+		}
+		if changed {
+			t.Fatal("changed = true on error, want false")
+		}
+	})
+}

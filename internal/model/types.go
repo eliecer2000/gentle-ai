@@ -86,7 +86,8 @@ const (
 	SkillChainedPR       SkillID = "chained-pr"
 	SkillCognitiveDoc    SkillID = "cognitive-doc-design"
 	SkillCommentWriter   SkillID = "comment-writer"
-	SkillWorkUnitCommits SkillID = "work-unit-commits"
+	SkillWorkUnitCommits      SkillID = "work-unit-commits"
+	SkillSequentialBranches   SkillID = "sequential-branches"
 )
 
 type PersonaID string

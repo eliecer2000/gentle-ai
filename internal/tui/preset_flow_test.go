@@ -129,7 +129,8 @@ func TestCustomPresetPostComponentFlowMatrix(t *testing.T) {
 			actions: []flowAction{
 				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // DependencyTree Continue -> SDDMode
 				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // SDDMode single -> StrictTDD
-				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictTDD enable -> OpenCode plugins
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictTDD enable -> StrictWorkflow
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictWorkflow disable -> OpenCode plugins
 			},
 			wantScreen: ScreenOpenCodePlugins,
 			golden:     "custom-opencode-sdd-after-strict-next.golden",
@@ -141,7 +142,8 @@ func TestCustomPresetPostComponentFlowMatrix(t *testing.T) {
 			actions: []flowAction{
 				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // DependencyTree Continue -> SDDMode
 				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // SDDMode single -> StrictTDD
-				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictTDD enable -> OpenCode plugins
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictTDD enable -> StrictWorkflow
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictWorkflow disable -> OpenCode plugins
 				{key: tea.KeyMsg{Type: tea.KeyEnter}, cursor: len(opencodepluginDefinitions()) * 2, setCursor: true}, // OpenCode plugins Continue -> SkillPicker
 			},
 			wantScreen: ScreenSkillPicker,
@@ -153,7 +155,8 @@ func TestCustomPresetPostComponentFlowMatrix(t *testing.T) {
 			components: []model.ComponentID{model.ComponentSDD, model.ComponentSkills},
 			actions: []flowAction{
 				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // DependencyTree Continue -> StrictTDD
-				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictTDD enable -> SkillPicker
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictTDD enable -> StrictWorkflow
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictWorkflow disable -> SkillPicker
 			},
 			wantScreen: ScreenSkillPicker,
 			golden:     "custom-no-opencode-sdd-skills-next.golden",
@@ -273,10 +276,11 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},
 				{key: tea.KeyMsg{Type: tea.KeyEnter}, cursor: continuePluginsCursor, setCursor: true},
 			},
-			forwardScreens: []Screen{ScreenSDDMode, ScreenStrictTDD, ScreenOpenCodePlugins, ScreenDependencyTree},
-			reverseScreens: []Screen{ScreenOpenCodePlugins, ScreenStrictTDD, ScreenSDDMode, ScreenPreset},
+			forwardScreens: []Screen{ScreenSDDMode, ScreenStrictTDD, ScreenStrictWorkflow, ScreenOpenCodePlugins, ScreenDependencyTree},
+			reverseScreens: []Screen{ScreenOpenCodePlugins, ScreenStrictWorkflow, ScreenStrictTDD, ScreenSDDMode, ScreenPreset},
 		},
 		{
 			name: "OpenCode SDD multi with model cache returns through plugins strict TDD model picker and SDD mode",
@@ -303,11 +307,12 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 						return state
 					},
 				},
-				{key: tea.KeyMsg{Type: tea.KeyEnter}},
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictTDD -> StrictWorkflow
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictWorkflow -> OpenCode plugins
 				{key: tea.KeyMsg{Type: tea.KeyEnter}, cursor: continuePluginsCursor, setCursor: true},
 			},
-			forwardScreens: []Screen{ScreenSDDMode, ScreenModelPicker, ScreenStrictTDD, ScreenOpenCodePlugins, ScreenDependencyTree},
-			reverseScreens: []Screen{ScreenOpenCodePlugins, ScreenStrictTDD, ScreenModelPicker, ScreenSDDMode, ScreenPreset},
+			forwardScreens: []Screen{ScreenSDDMode, ScreenModelPicker, ScreenStrictTDD, ScreenStrictWorkflow, ScreenOpenCodePlugins, ScreenDependencyTree},
+			reverseScreens: []Screen{ScreenOpenCodePlugins, ScreenStrictWorkflow, ScreenStrictTDD, ScreenModelPicker, ScreenSDDMode, ScreenPreset},
 		},
 		{
 			name: "non-OpenCode SDD returns through strict TDD to preset",
@@ -321,9 +326,10 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 			forwardActions: []flowAction{
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},
 			},
-			forwardScreens: []Screen{ScreenStrictTDD, ScreenDependencyTree},
-			reverseScreens: []Screen{ScreenStrictTDD, ScreenPreset},
+			forwardScreens: []Screen{ScreenStrictTDD, ScreenStrictWorkflow, ScreenDependencyTree},
+			reverseScreens: []Screen{ScreenStrictWorkflow, ScreenStrictTDD, ScreenPreset},
 		},
 		{
 			name: "custom SDD skills returns from skill picker through strict TDD to component selector",
@@ -339,9 +345,10 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 			forwardActions: []flowAction{
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},
 			},
-			forwardScreens: []Screen{ScreenStrictTDD, ScreenSkillPicker},
-			reverseScreens: []Screen{ScreenStrictTDD, ScreenDependencyTree},
+			forwardScreens: []Screen{ScreenStrictTDD, ScreenStrictWorkflow, ScreenSkillPicker},
+			reverseScreens: []Screen{ScreenStrictWorkflow, ScreenStrictTDD, ScreenDependencyTree},
 		},
 		{
 			name: "custom OpenCode SDD skills returns from skill picker through strict TDD and SDD mode to component selector",
@@ -357,11 +364,12 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 			forwardActions: []flowAction{
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},
-				{key: tea.KeyMsg{Type: tea.KeyEnter}},
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictTDD -> StrictWorkflow
+				{key: tea.KeyMsg{Type: tea.KeyEnter}}, // StrictWorkflow -> OpenCode plugins
 				{key: tea.KeyMsg{Type: tea.KeyEnter}, cursor: continuePluginsCursor, setCursor: true},
 			},
-			forwardScreens: []Screen{ScreenSDDMode, ScreenStrictTDD, ScreenOpenCodePlugins, ScreenSkillPicker},
-			reverseScreens: []Screen{ScreenStrictTDD, ScreenSDDMode, ScreenDependencyTree},
+			forwardScreens: []Screen{ScreenSDDMode, ScreenStrictTDD, ScreenStrictWorkflow, ScreenOpenCodePlugins, ScreenSkillPicker},
+			reverseScreens: []Screen{ScreenStrictWorkflow, ScreenStrictTDD, ScreenSDDMode, ScreenDependencyTree},
 		},
 		{
 			name: "custom Engram only returns from review to component selector",
@@ -403,7 +411,8 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // Kiro preset → Codex picker
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // Codex preset → SDDMode
 				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // SDDMode single → StrictTDD
-				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // StrictTDD → OpenCodePlugins
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // StrictTDD → StrictWorkflow
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                       // StrictWorkflow → OpenCodePlugins
 				{key: tea.KeyMsg{Type: tea.KeyEnter}, cursor: continuePluginsCursor, setCursor: true},       // OpenCodePlugins → DependencyTree
 			},
 			forwardScreens: []Screen{
@@ -412,11 +421,13 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 				ScreenCodexModelPicker,
 				ScreenSDDMode,
 				ScreenStrictTDD,
+				ScreenStrictWorkflow,
 				ScreenOpenCodePlugins,
 				ScreenDependencyTree,
 			},
 			reverseScreens: []Screen{
 				ScreenOpenCodePlugins,
+				ScreenStrictWorkflow,
 				ScreenStrictTDD,
 				ScreenSDDMode,
 				ScreenCodexModelPicker, // regression: SDDMode back must hit Codex, not skip to Claude
@@ -461,7 +472,8 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 						return state
 					},
 				}, // ModelPicker Continue → StrictTDD
-				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                 // StrictTDD → OpenCodePlugins
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                 // StrictTDD → StrictWorkflow
+				{key: tea.KeyMsg{Type: tea.KeyEnter}},                                                 // StrictWorkflow → OpenCodePlugins
 				{key: tea.KeyMsg{Type: tea.KeyEnter}, cursor: continuePluginsCursor, setCursor: true}, // OpenCodePlugins → DependencyTree
 			},
 			forwardScreens: []Screen{
@@ -471,11 +483,13 @@ func TestInstallNavigationRoundTrips(t *testing.T) {
 				ScreenSDDMode,
 				ScreenModelPicker,
 				ScreenStrictTDD,
+				ScreenStrictWorkflow,
 				ScreenOpenCodePlugins,
 				ScreenDependencyTree,
 			},
 			reverseScreens: []Screen{
 				ScreenOpenCodePlugins,
+				ScreenStrictWorkflow,
 				ScreenStrictTDD,
 				ScreenModelPicker,
 				ScreenSDDMode,
